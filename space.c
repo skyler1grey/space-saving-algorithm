@@ -52,7 +52,7 @@ void node_delete(node *now)
 			return;
 		}
 	}
-}
+};
 
 space *space_new(int size)
 {
@@ -81,7 +81,7 @@ void space_free(space *sp)
     	free(first_node);
     }
     return;
-}
+};
 
 node* node_create(void)
 {
@@ -91,11 +91,19 @@ node* node_create(void)
 	new_node->front_node=NULL;
 	new_node->value=0;
 	return new_node;
-}
+};
 
 node *space_getnode(space *sp,unsigned long long count,node *start_node)
 {
-	for(;start_node->back_node==NULL||start_node->value>=count;start_node=start_node->back_node);
+	if(start_node==NULL)
+	{
+		start_node=node_create();
+		start_node->value=count;
+		sp->mlist=start_node;
+		return start_node;
+	}
+	for(;start_node->back_node!=NULL&&start_node->value<count;
+			start_node=start_node->back_node);
 	if(start_node->back_node==NULL)
 	{
 		if(start_node->value==count)
@@ -103,10 +111,21 @@ node *space_getnode(space *sp,unsigned long long count,node *start_node)
 		if(start_node->value>count)
 		{
 			node* new_node=node_create();
+			if(sp->mlist==start_node)
+			{
+				sp->mlist=new_node;
+			}
 			new_node->front_node=start_node->front_node;
 			new_node->back_node=start_node;
-			start_node->front_node->back_node=new_node;
-			start_node->front_node=new_node;
+			if(start_node->front_node==NULL)
+			{
+				start_node->front_node=new_node;
+			}
+			else
+			{
+				start_node->front_node->back_node=new_node;
+				start_node->front_node=new_node;
+			}
 			new_node->value=count;
 			return new_node;
 		}
@@ -127,15 +146,26 @@ node *space_getnode(space *sp,unsigned long long count,node *start_node)
 		else
 		{
 			node* new_node=node_create();
+			if(sp->mlist==start_node)
+			{
+				sp->mlist=new_node;
+			}
 			new_node->front_node=start_node->front_node;
 			new_node->back_node=start_node;
-			start_node->front_node->back_node=new_node;
-			start_node->front_node=new_node;
+			if(start_node->front_node==NULL)
+			{
+				start_node->front_node=new_node;
+			}
+			else
+			{
+				start_node->front_node->back_node=new_node;
+				start_node->front_node=new_node;
+			}
 			new_node->value=count;
 			return new_node;
 		}
 	}
-}
+};
 
 void insert_bucket_to_node(node *now_node,bucket *now_bucket)
 {
@@ -157,14 +187,18 @@ void insert_bucket_to_node(node *now_node,bucket *now_bucket)
 		return;
 	}
 	return;
-}
+};
 
-void remove_bucket_from_node(node *now_node,bucket *now_bucket)
+void remove_bucket_from_node(space *sp,node *now_node,bucket *now_bucket)
 {
 	if(now_bucket==now_node->first_child)
 	{
 		if(now_bucket->next_bucket==now_bucket)
 		{
+			if(sp->mlist==now_node)
+			{
+				sp->mlist=now_node->back_node;
+			}
 			node_delete(now_node);
 			return;
 		}
@@ -189,40 +223,48 @@ void remove_bucket_from_node(node *now_node,bucket *now_bucket)
 	return;
 }
 
-bucket *bucket_create(char *v,size_t vlen)
+bucket *bucket_create(space *sp,void *v,size_t vlen)
 {
 	bucket *new_bucket=malloc(sizeof(bucket));
 	new_bucket->father=NULL;
 	new_bucket->id=calloc(1,vlen);
-	memcpy(new_bucket,v,vlen);
+	memcpy(new_bucket->id,v,vlen);
 	new_bucket->error=0;
 	new_bucket->next_bucket=NULL;
+	ght_insert(sp->htable,new_bucket,vlen,v);
 	return new_bucket;
-}
+};
 
 
-void space_insert(space * sp,char *v, size_t vlen, unsigned long long count)
+void space_insert(space * sp,void *v, int vlen, unsigned long long count)
 {
 	bucket* now_bucket=ght_get(sp->htable,vlen,v);
 	if(now_bucket==NULL)
 	{
-		bucket *new_bucket=bucket_create(v,vlen);
+		bucket *new_bucket=bucket_create(sp,v,vlen);
 		if(sp->msize<sp->hsize)
 		{
 			node *now_node=sp->mlist;
 			now_node=space_getnode(sp,count,now_node);
 			insert_bucket_to_node(now_node,new_bucket);
+			sp->msize++;
 			return;
 		}
 		else
 		{
 			node *min_node=sp->mlist;
+			if(min_node==NULL)
+			{
+				fprintf(stderr,"mlist is NULL\n");
+			}
 			bucket *min_bucket=min_node->first_child;
+			min_bucket=find_min_bucket(min_bucket);
 			unsigned long long min_num=min_node->value;
+			printf("min_num:%llu\n",min_node->value);
 			count+=min_num;
 			new_bucket->error=min_num;
-			remove_bucket_from_node(min_node,min_bucket);
-			bucket *remove_bucket=ght_remove(sp->htable,vlen,v);
+			bucket *remove_bucket=ght_remove(sp->htable,vlen,min_bucket->id);
+			remove_bucket_from_node(sp,min_node,min_bucket);
 			if(remove_bucket==NULL)
 			{
 				fprintf(stderr,"can't find this bucket\n");
@@ -233,7 +275,8 @@ void space_insert(space * sp,char *v, size_t vlen, unsigned long long count)
 				fprintf(stderr,"buckets do not match\n");
 				return;
 			}
-			node *now_node=space_getnode(sp,count,now_node);
+			node *now_node=sp->mlist;
+			now_node=space_getnode(sp,count,now_node);
 			insert_bucket_to_node(now_node,new_bucket);
 			free(min_bucket->id);
 			free(min_bucket);
@@ -242,12 +285,39 @@ void space_insert(space * sp,char *v, size_t vlen, unsigned long long count)
 	}
 	else
 	{
-		count=now_bucket->father->value+count;
-		remove_bucket_from_node(now_bucket->father,now_bucket);
+		count+=now_bucket->father->value;
+		remove_bucket_from_node(sp,now_bucket->father,now_bucket);
 		node *now_node=sp->mlist;
 		now_node=space_getnode(sp,count,now_node);
 		insert_bucket_to_node(now_node,now_bucket);
 	}
+	return;
+};
+
+bucket *find_min_bucket(bucket *start_bucket)
+{
+	bucket *cur_bucket=start_bucket->next_bucket;
+	bucket *min_bucket=start_bucket;
+	unsigned long long temp_error=start_bucket->error;
+	for(;cur_bucket->next_bucket!=start_bucket;cur_bucket=cur_bucket->next_bucket)
+	{
+		if(cur_bucket->error>temp_error)
+		{
+			min_bucket=cur_bucket;
+			temp_error=cur_bucket->error;
+		}
+	}
+	return min_bucket;
+}
+
+void print_mlist(space *sp)
+{
+	node *start_node=sp->mlist;
+	for(;start_node!=NULL;start_node=start_node->back_node)
+	{
+		printf("%llu->",start_node->value);
+	}
+	printf("\n");
 	return;
 }
 
